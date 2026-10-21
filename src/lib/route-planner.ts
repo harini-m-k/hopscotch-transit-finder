@@ -1,7 +1,20 @@
-// Route optimisation: finds direct buses and the shortest journey (fewest minutes)
-// between two stops using Dijkstra's algorithm on the stop network.
+// Route optimisation: direct buses, and journey options between two stops computed with
+// Dijkstra's algorithm on the stop network using different "cost" rules
+// (fastest, cheapest, fewest changes, accessible, lowest emissions).
 
-import { DWELL_MINUTES, fareFor, routeSegments, tripOnRoute, type Route, type Stop, type TripEstimate } from "./transit";
+import {
+  CAR_G_PER_KM,
+  DWELL_MINUTES,
+  fareFor,
+  routeEmissionFactor,
+  routeIsAccessible,
+  routeSegments,
+  tripOnRoute,
+  type Bus,
+  type Route,
+  type Stop,
+  type TripEstimate,
+} from "./transit";
 
 /** Extra minutes added when a passenger changes from one bus route to another (waiting time). */
 export const TRANSFER_PENALTY_MINUTES = 10;
@@ -39,17 +52,26 @@ export type Journey = {
 
 type Edge = { to: string; routeId: string; km: number; minutes: number };
 
-/**
- * Shortest journey by travel time. Each graph state is (stop, current route) so that
- * changing buses can add a transfer penalty. Returns null when no connection exists.
- */
-export function findShortestJourney(routes: Route[], fromId: string, toId: string): Journey | null {
+/** How Dijkstra scores a journey. Lower total cost wins. */
+export type CostModel = {
+  edge: (e: { km: number; minutes: number }, route: Route) => number;
+  /** Cost of getting on a bus. isTransfer = changing from another route. */
+  board: (route: Route, isTransfer: boolean) => number;
+  allow?: (route: Route) => boolean;
+};
+
+export const FASTEST: CostModel = {
+  edge: (e) => e.minutes,
+  board: (_r, isTransfer) => (isTransfer ? TRANSFER_PENALTY_MINUTES : 0),
+};
+
+/** Generic Dijkstra over (stop, current route) states. Returns null when not connected. */
+export function planJourney(routes: Route[], fromId: string, toId: string, model: CostModel = FASTEST): Journey | null {
   if (fromId === toId) return null;
-  const active = routes.filter((r) => r.is_active && r.stops.length >= 2);
+  const active = routes.filter((r) => r.is_active && r.stops.length >= 2 && (model.allow ? model.allow(r) : true));
   const routeById = new Map(active.map((r) => [r.id, r]));
   const stopById = new Map<string, Stop>();
 
-  // Build adjacency list: every consecutive pair of stops on a route, both directions.
   const adj = new Map<string, Edge[]>();
   const addEdge = (a: string, e: Edge) => {
     if (!adj.has(a)) adj.set(a, []);
@@ -68,7 +90,6 @@ export function findShortestJourney(routes: Route[], fromId: string, toId: strin
   const key = (stop: string, route: string) => `${stop}|${route}`;
   const dist = new Map<string, number>();
   const prev = new Map<string, { state: string; edge: Edge } | null>();
-  // Simple priority queue (array) — fine for city-sized networks.
   const queue: { state: string; stop: string; route: string; cost: number }[] = [];
 
   const startState = key(fromId, "");
@@ -86,8 +107,9 @@ export function findShortestJourney(routes: Route[], fromId: string, toId: strin
       break;
     }
     for (const e of adj.get(cur.stop) ?? []) {
-      const transfer = cur.route !== "" && cur.route !== e.routeId ? TRANSFER_PENALTY_MINUTES : 0;
-      const cost = cur.cost + e.minutes + transfer;
+      const route = routeById.get(e.routeId)!;
+      const boarding = cur.route !== e.routeId ? model.board(route, cur.route !== "") : 0;
+      const cost = cur.cost + model.edge(e, route) + boarding;
       const next = key(e.to, e.routeId);
       if (cost < (dist.get(next) ?? Infinity)) {
         dist.set(next, cost);
@@ -98,7 +120,6 @@ export function findShortestJourney(routes: Route[], fromId: string, toId: strin
   }
   if (!best) return null;
 
-  // Walk back to collect edges in order.
   const edges: { from: string; edge: Edge }[] = [];
   let s: string = best;
   while (prev.get(s)) {
@@ -107,7 +128,6 @@ export function findShortestJourney(routes: Route[], fromId: string, toId: strin
     s = p.state;
   }
 
-  // Group consecutive edges on the same route into legs.
   const legs: Leg[] = [];
   for (const { from, edge } of edges) {
     const last = legs[legs.length - 1];
@@ -137,4 +157,66 @@ export function findShortestJourney(routes: Route[], fromId: string, toId: strin
     totalFare: legs.reduce((a, l) => a + l.fare, 0),
     totalMinutes: legs.reduce((a, l) => a + l.minutes, 0) + transfers * TRANSFER_PENALTY_MINUTES,
   };
+}
+
+/** Fastest journey (kept for compatibility). */
+export function findShortestJourney(routes: Route[], fromId: string, toId: string): Journey | null {
+  return planJourney(routes, fromId, toId, FASTEST);
+}
+
+export type OptionKind = "fastest" | "cheapest" | "fewest_transfers" | "accessible" | "greenest";
+export const OPTION_KINDS: OptionKind[] = ["fastest", "cheapest", "fewest_transfers", "accessible", "greenest"];
+
+export type JourneyOption = {
+  kind: OptionKind;
+  journey: Journey;
+  /** Estimated grams CO2 for one passenger */
+  emissionsG: number;
+  /** Same distance by car, grams CO2 */
+  carEmissionsG: number;
+  accessible: boolean;
+  /** When the same journey is already shown under an earlier option */
+  sameAs?: OptionKind;
+};
+
+export function journeyEmissions(journey: Journey, buses: Bus[]) {
+  return journey.legs.reduce((a, l) => a + l.km * routeEmissionFactor(l.route.id, buses), 0);
+}
+
+const signature = (j: Journey) => j.legs.map((l) => `${l.route.id}:${l.stops.map((s) => s.id).join(">")}`).join("|");
+
+/** All journey options with their metrics. Options that cannot be planned are left out. */
+export function findJourneyOptions(routes: Route[], buses: Bus[], fromId: string, toId: string): JourneyOption[] {
+  const models: Record<OptionKind, CostModel> = {
+    fastest: FASTEST,
+    cheapest: {
+      edge: (e, r) => r.fare_per_km * e.km + e.minutes * 0.001,
+      board: (r, isTransfer) => r.base_fare + (isTransfer ? 0.01 : 0),
+    },
+    fewest_transfers: {
+      edge: (e) => e.minutes,
+      board: (_r, isTransfer) => (isTransfer ? 1000 : 0),
+    },
+    accessible: { ...FASTEST, allow: (r) => routeIsAccessible(r.id, buses) },
+    greenest: {
+      edge: (e, r) => e.km * routeEmissionFactor(r.id, buses) + e.minutes * 0.01,
+      board: (_r, isTransfer) => (isTransfer ? 1 : 0),
+    },
+  };
+  const out: JourneyOption[] = [];
+  for (const kind of OPTION_KINDS) {
+    const journey = planJourney(routes, fromId, toId, models[kind]);
+    if (!journey) continue;
+    const sig = signature(journey);
+    const twin = out.find((o) => signature(o.journey) === sig);
+    out.push({
+      kind,
+      journey,
+      emissionsG: Math.round(journeyEmissions(journey, buses)),
+      carEmissionsG: Math.round(journey.totalKm * CAR_G_PER_KM),
+      accessible: journey.legs.every((l) => routeIsAccessible(l.route.id, buses)),
+      ...(twin ? { sameAs: twin.sameAs ?? twin.kind } : {}),
+    });
+  }
+  return out;
 }
