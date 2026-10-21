@@ -15,6 +15,13 @@
       "when": 1792562831973,
       "tag": "0001_add_app_roles",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1792562880572,
+      "tag": "0002_passengers_timetables_bookings",
+      "breakpoints": true
     }
   ]
 }

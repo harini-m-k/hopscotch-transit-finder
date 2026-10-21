@@ -14,6 +14,78 @@ export type Database = {
   }
   public: {
     Tables: {
+      bookings: {
+        Row: {
+          booking_code: string
+          cancelled_at: string | null
+          created_at: string
+          fare_total: number
+          from_name: string
+          from_stop_id: string | null
+          id: string
+          legs: Json
+          option_type: string
+          passengers: number
+          status: string
+          to_name: string
+          to_stop_id: string | null
+          travel_at: string
+          used_at: string | null
+          user_id: string
+        }
+        Insert: {
+          booking_code: string
+          cancelled_at?: string | null
+          created_at?: string
+          fare_total: number
+          from_name: string
+          from_stop_id?: string | null
+          id?: string
+          legs?: Json
+          option_type: string
+          passengers?: number
+          status?: string
+          to_name: string
+          to_stop_id?: string | null
+          travel_at: string
+          used_at?: string | null
+          user_id: string
+        }
+        Update: {
+          booking_code?: string
+          cancelled_at?: string | null
+          created_at?: string
+          fare_total?: number
+          from_name?: string
+          from_stop_id?: string | null
+          id?: string
+          legs?: Json
+          option_type?: string
+          passengers?: number
+          status?: string
+          to_name?: string
+          to_stop_id?: string | null
+          travel_at?: string
+          used_at?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bookings_from_stop_id_fkey"
+            columns: ["from_stop_id"]
+            isOneToOne: false
+            referencedRelation: "stops"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bookings_to_stop_id_fkey"
+            columns: ["to_stop_id"]
+            isOneToOne: false
+            referencedRelation: "stops"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       buses: {
         Row: {
           bus_number: string
@@ -22,6 +94,7 @@ export type Database = {
           created_at: string
           driver_name: string
           id: string
+          is_accessible: boolean
           route_id: string | null
           status: string
         }
@@ -32,6 +105,7 @@ export type Database = {
           created_at?: string
           driver_name?: string
           id?: string
+          is_accessible?: boolean
           route_id?: string | null
           status?: string
         }
@@ -42,6 +116,7 @@ export type Database = {
           created_at?: string
           driver_name?: string
           id?: string
+          is_accessible?: boolean
           route_id?: string | null
           status?: string
         }
@@ -51,6 +126,155 @@ export type Database = {
             columns: ["route_id"]
             isOneToOne: false
             referencedRelation: "routes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      favorites: {
+        Row: {
+          created_at: string
+          from_stop_id: string
+          id: string
+          label: string
+          to_stop_id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          from_stop_id: string
+          id?: string
+          label?: string
+          to_stop_id: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          from_stop_id?: string
+          id?: string
+          label?: string
+          to_stop_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "favorites_from_stop_id_fkey"
+            columns: ["from_stop_id"]
+            isOneToOne: false
+            referencedRelation: "stops"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "favorites_to_stop_id_fkey"
+            columns: ["to_stop_id"]
+            isOneToOne: false
+            referencedRelation: "stops"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      payments: {
+        Row: {
+          amount: number
+          booking_id: string
+          created_at: string
+          id: string
+          mode: string
+          status: string
+          transaction_ref: string
+          user_id: string
+        }
+        Insert: {
+          amount: number
+          booking_id: string
+          created_at?: string
+          id?: string
+          mode?: string
+          status: string
+          transaction_ref: string
+          user_id: string
+        }
+        Update: {
+          amount?: number
+          booking_id?: string
+          created_at?: string
+          id?: string
+          mode?: string
+          status?: string
+          transaction_ref?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payments_booking_id_fkey"
+            columns: ["booking_id"]
+            isOneToOne: false
+            referencedRelation: "bookings"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      profiles: {
+        Row: {
+          created_at: string
+          email: string
+          full_name: string
+          id: string
+          needs_accessible: boolean
+          preferred_language: string
+        }
+        Insert: {
+          created_at?: string
+          email?: string
+          full_name?: string
+          id: string
+          needs_accessible?: boolean
+          preferred_language?: string
+        }
+        Update: {
+          created_at?: string
+          email?: string
+          full_name?: string
+          id?: string
+          needs_accessible?: boolean
+          preferred_language?: string
+        }
+        Relationships: []
+      }
+      recent_searches: {
+        Row: {
+          created_at: string
+          from_stop_id: string
+          id: string
+          to_stop_id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          from_stop_id: string
+          id?: string
+          to_stop_id: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          from_stop_id?: string
+          id?: string
+          to_stop_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "recent_searches_from_stop_id_fkey"
+            columns: ["from_stop_id"]
+            isOneToOne: false
+            referencedRelation: "stops"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "recent_searches_to_stop_id_fkey"
+            columns: ["to_stop_id"]
+            isOneToOne: false
+            referencedRelation: "stops"
             referencedColumns: ["id"]
           },
         ]
@@ -98,8 +322,11 @@ export type Database = {
           color: string
           created_at: string
           fare_per_km: number
+          first_departure: string
+          frequency_min: number
           id: string
           is_active: boolean
+          last_departure: string
           name: string
           route_number: string
         }
@@ -109,8 +336,11 @@ export type Database = {
           color?: string
           created_at?: string
           fare_per_km?: number
+          first_departure?: string
+          frequency_min?: number
           id?: string
           is_active?: boolean
+          last_departure?: string
           name: string
           route_number: string
         }
@@ -120,8 +350,11 @@ export type Database = {
           color?: string
           created_at?: string
           fare_per_km?: number
+          first_departure?: string
+          frequency_min?: number
           id?: string
           is_active?: boolean
+          last_departure?: string
           name?: string
           route_number?: string
         }
