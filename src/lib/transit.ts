@@ -18,6 +18,10 @@ export type Route = {
   base_fare: number;
   fare_per_km: number;
   is_active: boolean;
+  /** Timetable: first and last departure from the terminal ("HH:MM[:SS]") and minutes between buses */
+  first_departure: string;
+  last_departure: string;
+  frequency_min: number;
   /** Stops in travel order */
   stops: Stop[];
 };
@@ -30,6 +34,7 @@ export type Bus = {
   capacity: number;
   status: string;
   driver_name: string;
+  is_accessible: boolean;
 };
 
 /** Roads are not straight lines, so straight-line distance is multiplied by this factor. */
@@ -119,4 +124,26 @@ export function formatKm(km: number) {
 
 export function formatFare(rupees: number) {
   return `₹${rupees}`;
+}
+
+// ---------- Emissions (estimates) ----------
+/**
+ * Estimated grams of CO2 per passenger-km, by bus type. Assumptions (shown to users):
+ * diesel city bus ~1.1 kg CO2/km with ~13 average passengers; AC adds ~25%;
+ * electric bus counted with Indian grid electricity (~0.7 kg CO2/kWh, ~1.2 kWh/km) and same load.
+ */
+export const EMISSION_G_PER_PKM: Record<string, number> = { Ordinary: 82, Deluxe: 82, AC: 105, Electric: 30 };
+/** Average petrol car with one person, grams CO2 per km — used for "savings vs car". */
+export const CAR_G_PER_KM = 170;
+
+/** Average emission factor of the active buses on a route (Ordinary if none). */
+export function routeEmissionFactor(routeId: string, buses: Bus[]) {
+  const fleet = buses.filter((b) => b.route_id === routeId && b.status === "active");
+  if (fleet.length === 0) return EMISSION_G_PER_PKM["Ordinary"]!;
+  return fleet.reduce((a, b) => a + (EMISSION_G_PER_PKM[b.bus_type] ?? 82), 0) / fleet.length;
+}
+
+/** True when at least one active bus on the route is wheelchair accessible. */
+export function routeIsAccessible(routeId: string, buses: Bus[]) {
+  return buses.some((b) => b.route_id === routeId && b.status === "active" && b.is_accessible);
 }
